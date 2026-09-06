@@ -12,6 +12,8 @@ import os
 
 import litellm
 
+from tools import SENTINEL
+
 MAX_TOKENS = 2048  # tool calls get truncated below this on some gateways
 
 
@@ -62,7 +64,19 @@ def tool_call(response) -> tuple[str, dict]:
     calls = getattr(message, "tool_calls", None)
     if not calls:
         raise NoToolCall(f"expected a tool call, got prose: {str(message.content)[:200]}")
-    fn = calls[0].function
+    # Not always calls[0]: a model that rambles mid-call can emit a first
+    # fragment with no name at all, and taking it blindly turned a correct
+    # tool choice into "unknown tool: None".
+    fn = next((c.function for c in calls if getattr(c.function, "name", None)), None)
+    if fn is None:
+        raise NoToolCall("the model returned a tool call with no tool name")
+
+    # The sentinel takes no parameters, so its arguments cannot be wrong — and
+    # this model sometimes fills them with a runaway apology. Judging the
+    # decision by its punctuation would discard a correct refusal.
+    if fn.name == SENTINEL:
+        return fn.name, {}
+
     try:
         args = json.loads(fn.arguments or "{}")
     except ValueError as exc:
@@ -72,3 +86,37 @@ def tool_call(response) -> tuple[str, dict]:
 
 def text(response) -> str:
     return (response.choices[0].message.content or "").strip()
+
+
+if __name__ == "__main__":
+    # Run with: .venv/bin/python llm.py
+    # Every case below is a real reply this model produced against the live
+    # stack — the malformed ones cost an afternoon of "something went wrong".
+    from types import SimpleNamespace as N
+
+    def reply(*calls, content=""):
+        made = [N(function=N(name=n, arguments=a)) for n, a in calls]
+        return N(choices=[N(message=N(tool_calls=made or None, content=content))])
+
+    assert tool_call(reply(("loki_query", '{"services": ["store"]}'))) == \
+        ("loki_query", {"services": ["store"]})
+
+    # A first fragment with no name at all, followed by the real choice.
+    assert tool_call(reply((None, "{}"), ("loki_query", "{}")))[0] == "loki_query"
+
+    # The sentinel takes no parameters, so a runaway apology in its arguments
+    # is noise, not a wrong decision.
+    assert tool_call(reply((SENTINEL, "{}'} There is no tool. I'm sorry. " * 50))) == \
+        (SENTINEL, {})
+
+    for bad, why in [(reply(content="I think you should check Loki."), "prose"),
+                     (reply((None, "{}")), "no name anywhere"),
+                     (reply(("loki_query", "not json at all")), "unparsable arguments")]:
+        try:
+            tool_call(bad)
+        except NoToolCall:
+            pass
+        else:
+            raise AssertionError(f"should have raised NoToolCall: {why}")
+
+    print("llm.tool_call: ok")

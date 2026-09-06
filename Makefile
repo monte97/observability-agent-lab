@@ -65,12 +65,12 @@ ask:         ## Ask a question: make ask Q="does store have errors?"
 scenario:    ## Ask it as a symptom, letting the model propose causes
 	@cd $(ROOT) && $(ENV) $(PY) cli.py --scenario --minutes $(MINUTES) "$(Q)"
 
-examples:    ## Run three questions that answer, one after another
+examples:    ## Run the questions that answer in one step, one after another
 	@while IFS= read -r q; do \
-	  [ -z "$$q" ] || case "$$q" in \#*) continue;; esac; \
+	  case "$$q" in ''|\#*) continue;; esac; \
 	  echo; echo "### $$q"; \
 	  cd $(ROOT) && $(ENV) $(PY) cli.py --minutes $(MINUTES) "$$q" | tail -3; \
-	done < <(sed -n '/it answers, in one step/,/^$$/p' demo-questions.txt | grep -v '^#')
+	done < <(sed -n '/it answers, in one step/,/^$$/p' demo-questions.txt)
 
 bench:       ## Measure the agent against five gold queries
 	@cd $(ROOT) && $(ENV) $(PY) bench/run.py

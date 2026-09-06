@@ -291,9 +291,11 @@ def node_weigh(state: State, model: str | None = None) -> dict:
     # If the query that was supposed to prove this hypothesis returned nothing,
     # the hypothesis is discarded regardless of the score. Without this, the
     # loop concludes on hypotheses that were never actually supported.
+    # The sentinel counts here too: "no tool of mine can check this" means the
+    # hypothesis cannot be supported, which is exactly what discarding records.
     findings = state.get("findings") or []
     last = findings[-1] if findings else {}
-    empty_evidence = last and last.get("hits") == 0 and not last.get("sentinel")
+    empty_evidence = bool(last) and last.get("hits") == 0
     index = (state.get("choice") or {}).get("hypothesis_index")
     if empty_evidence and index is not None and 0 <= index < len(hypotheses):
         hypotheses[index]["confidence"] = 0
@@ -313,8 +315,16 @@ def route_after_weigh(state: State) -> str:
 
     findings = state.get("findings") or []
     last = findings[-1] if findings else {}
+    # The sentinel settles the hypothesis it was asked about, not necessarily
+    # the question. In direct mode there is only one hypothesis, so it ends the
+    # run — and it must, because asking the same unanswerable question again
+    # eventually gets a malformed reply instead of a second honest refusal. In
+    # scenario mode the other candidates are still worth checking.
+    if last.get("sentinel"):
+        undecided = [h for h in state.get("hypotheses") or [] if not h.get("discarded")]
+        return "choose" if undecided else "synthesize"
     # An empty result is not a conclusion: spend another cycle if budget allows.
-    if last and last.get("hits") == 0 and not last.get("sentinel"):
+    if last and last.get("hits") == 0:
         return "choose"
 
     best = max((h.get("confidence", 0) for h in state.get("hypotheses") or []), default=0)
@@ -327,22 +337,28 @@ def route_after_weigh(state: State) -> str:
 
 def node_synthesize(state: State, model: str | None = None) -> dict:
     if state.get("error"):
-        return {"answer": "I could not investigate: something went wrong while exploring "
-                          "the data.", "stop": True}
+        # Say what actually failed. "Something went wrong" is the kind of
+        # answer this whole lab argues against.
+        return {"answer": f"I could not investigate: {state['error']}", "stop": True}
 
     findings = state.get("findings") or []
-    if findings and findings[-1].get("sentinel"):
+    active = [h for h in (state.get("hypotheses") or []) if not h.get("discarded")]
+    # Only when nothing else is left standing: in scenario mode one unanswerable
+    # candidate must not speak for the three the loop did manage to check.
+    if findings and findings[-1].get("sentinel") and not active:
         return {"answer": "No tool of mine covers this question — it goes beyond what this "
                           "stack exposes.", "stop": True}
 
-    active = [h for h in (state.get("hypotheses") or []) if not h.get("discarded")]
     best = max((h.get("confidence", 0) for h in active), default=0)
     if state.get("hypotheses") and best < CONFIDENCE_THRESHOLD:
         # Saying "I do not know" is a valid triage answer. Inventing a cause is not.
         lines = [f"- {h['text']} (confidence {h.get('confidence', 0)})" for h in active]
+        tail = ("Still open:\n" + "\n".join(lines) if lines
+                else "Every hypothesis was discarded: the queries that would have "
+                     "supported them came back empty.")
         return {
             "answer": "Inconclusive: no hypothesis reached the confidence threshold "
-                      f"({CONFIDENCE_THRESHOLD}). Still open:\n" + "\n".join(lines or ["(all discarded)"]),
+                      f"({CONFIDENCE_THRESHOLD}). {tail}",
             "stop": True,
         }
 

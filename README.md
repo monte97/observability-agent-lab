@@ -11,7 +11,7 @@ found to contain *a moment ago*. A service name that does not exist is not
 unlikely — it is unsayable. The query string itself is composed by code the
 model never sees.
 
-This is a **lab**, not a product: ~600 lines you can read in one sitting, meant
+This is a **lab**, not a product: ~900 lines you can read in one sitting, meant
 to show the shape of the thing. It runs against
 [iot-observability-demo](https://github.com/monte97/iot-observability-demo),
 which gives you a real Kafka pipeline with real telemetry in a few commands.
@@ -76,8 +76,8 @@ Verified from a clean clone on 2026-09-06.
 
 ## Things to try
 
-`make examples` runs the first group below, one after another, in about twenty
-seconds. The full list is in `demo-questions.txt`.
+`make examples` runs the first group below, one after another, in well under a
+minute. The full list is in `demo-questions.txt`.
 
 **It answers** — one step each, 4-6 seconds:
 
@@ -85,6 +85,7 @@ seconds. The full list is in `demo-questions.txt`.
 make ask Q="show me what store is writing"
 make ask Q="is device-gateway logging anything?"
 make ask Q="how many log lines has normalizer produced?"
+make ask Q="which log lines did the store service produce recently?"
 ```
 
 > Based on the observed data, the normalizer service has produced at least 200
@@ -157,8 +158,9 @@ rules that are not here: see [What is not here](#what-is-not-here).
 | `discovery.py` | ~80 | Asks the backends what exists. **Never calls the model.** |
 | `tools.py` | ~130 | The schemas (with runtime enums) and the query composers. **The core idea.** |
 | `backends.py` | ~80 | Runs the composed query, reduces the payload to one readable fact. |
-| `graph.py` | ~330 | The LangGraph loop: hypotheses → choose → execute → weigh → synthesize. |
-| `llm.py` | ~70 | The only place that talks to the model. Three call sites, all visible. |
+| `graph.py` | ~415 | The LangGraph loop: hypotheses → choose → execute → weigh → synthesize. |
+| `llm.py` | ~120 | The only place that talks to the model. Three call sites, all visible.
+Run it directly for its self-check. |
 | `bench/` | ~140 | Five questions with gold queries, scored L1/L2/L3. |
 | `Makefile` | ~80 | Every command you need: setup, up, check, ask, examples, bench, incident. |
 | `demo-questions.txt` | — | Questions to try, grouped by what they show. |
@@ -206,6 +208,8 @@ mode was wrong.
    this" is offered as a tool. Without it, the model picks the least wrong
    option instead of admitting the gap — and in triage, *"I don't know"* is a
    valid answer while *"probably the database"* said confidently is not.
+   Picking it ends the run: asking an unanswerable question a second time
+   only gives the model another chance to answer it badly.
 
 ## Measure it before believing it
 
