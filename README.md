@@ -158,8 +158,8 @@ rules that are not here: see [What is not here](#what-is-not-here).
 | `discovery.py` | ~80 | Asks the backends what exists. **Never calls the model.** |
 | `tools.py` | ~130 | The schemas (with runtime enums) and the query composers. **The core idea.** |
 | `backends.py` | ~80 | Runs the composed query, reduces the payload to one readable fact. |
-| `graph.py` | ~415 | The LangGraph loop: hypotheses → choose → execute → weigh → synthesize. |
-| `llm.py` | ~120 | The only place that talks to the model. Three call sites, all visible.
+| `graph.py` | ~440 | The LangGraph loop: hypotheses → choose → execute → weigh → synthesize. |
+| `llm.py` | ~180 | The only place that talks to the model. Three call sites, all visible.
 Run it directly for its self-check. |
 | `bench/` | ~140 | Five questions with gold queries, scored L1/L2/L3. |
 | `Makefile` | ~80 | Every command you need: setup, up, check, ask, examples, bench, incident. |

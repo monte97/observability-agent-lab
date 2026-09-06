@@ -114,19 +114,23 @@ def node_hypotheses(state: State, model: str | None = None) -> dict:
         return {"hypotheses": [{"text": state["question"], "plan": "check it directly",
                                 "confidence": 0.5, "evidence": None}]}
 
-    response = llm.call(
-        [
-            {"role": "system", "content":
-                "You are an SRE triage agent. From the question and the topology, propose "
-                "2-4 plausible causes, each with a short plan to verify it. Use the real "
-                "service names you are given."},
-            {"role": "user", "content":
-                f"Question: {state['question']}\n\n{_topology_summary(state['topology'])}"},
-        ],
-        tools=[_hypotheses_schema()],
-        model=model,
-    )
-    _, args = llm.tool_call(response)
+    try:
+        _, args = llm.call_tool(
+            [
+                {"role": "system", "content":
+                    "You are an SRE triage agent. From the question and the topology, propose "
+                    "2-4 plausible causes, each with a short plan to verify it. Use the real "
+                    "service names you are given."},
+                {"role": "user", "content":
+                    f"Question: {state['question']}\n\n{_topology_summary(state['topology'])}"},
+            ],
+            [_hypotheses_schema()],
+            model,
+        )
+    except llm.NoToolCall as exc:
+        # Without this the run died with a traceback instead of an answer.
+        return {"error": f"could not propose hypotheses: {exc}", "stop": True}
+
     hypotheses = args.get("hypotheses") or []
     for h in hypotheses:
         h["confidence"] = 0.5
@@ -145,6 +149,12 @@ def node_choose(state: State, model: str | None = None) -> dict:
     preferring one never investigated yet). Which tool answers it is decided by
     the model — from a menu whose values were discovered a moment ago.
     """
+    # An error upstream already decided the outcome. Without this the next
+    # node overwrites it with a worse one — "unknown tool: None" is what a
+    # dead choose step looked like from here, and it named nothing useful.
+    if state.get("error"):
+        return {}
+
     hypotheses = state.get("hypotheses") or []
     if not hypotheses:
         return {"error": "no hypothesis to investigate", "stop": True}
@@ -160,17 +170,16 @@ def node_choose(state: State, model: str | None = None) -> dict:
                 f"({last[0].get('query')}). Try a different angle.")
 
     try:
-        response = llm.call(
+        name, args = llm.call_tool(
             [
                 {"role": "system", "content":
                     "You are an SRE triage agent. Pick exactly one tool to check the "
                     "hypothesis. If no tool can answer it, pick the sentinel tool." + hint},
                 {"role": "user", "content": target["text"]},
             ],
-            tools=tools.schemas(state["topology"]),
-            model=model,
+            tools.schemas(state["topology"]),
+            model,
         )
-        name, args = llm.tool_call(response)
     except llm.NoToolCall as exc:
         return {"error": str(exc), "stop": True}
 
@@ -187,6 +196,12 @@ def node_execute(state: State, start: int, end: int) -> dict:
     This is where the second half of the argument lives: the query string is
     built here, by code, from values the model could only pick out of an enum.
     """
+    # An error upstream already decided the outcome. Without this the next
+    # node overwrites it with a worse one — "unknown tool: None" is what a
+    # dead choose step looked like from here, and it named nothing useful.
+    if state.get("error"):
+        return {}
+
     choice = state.get("choice") or {}
     tool, args = choice.get("tool"), choice.get("arguments") or {}
 
@@ -266,6 +281,12 @@ def node_weigh(state: State, model: str | None = None) -> dict:
     conclusion just because the model liked it — no matter how confident the
     model sounded.
     """
+    # An error upstream already decided the outcome. Without this the next
+    # node overwrites it with a worse one — "unknown tool: None" is what a
+    # dead choose step looked like from here, and it named nothing useful.
+    if state.get("error"):
+        return {}
+
     hypotheses = copy.deepcopy(state.get("hypotheses") or [])
     listing = "\n".join(f"{i}) {h['text']}" for i, h in enumerate(hypotheses))
 

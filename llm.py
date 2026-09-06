@@ -84,6 +84,35 @@ def tool_call(response) -> tuple[str, dict]:
     return fn.name, args
 
 
+RETRY_NUDGE = ("\nYour previous reply was not a valid tool call. Answer with one tool "
+               "call and nothing else.")
+
+
+def call_tool(messages: list[dict], tools: list[dict], model: str | None = None,
+              attempts: int = 2) -> tuple[str, dict]:
+    """Ask for a tool call, drawing again if the envelope comes back malformed.
+
+    A malformed reply is a bad envelope, not a refusal: this model sometimes
+    returns arguments that are not JSON, or a first tool call with no name.
+    Redrawing costs one call and usually comes back clean, where giving up
+    costs the whole answer.
+
+    Two attempts, then raise. A model that cannot do constrained tool calling
+    is a measurement worth surfacing, and retrying forever would hide it.
+    """
+    failures = []
+    for attempt in range(attempts):
+        drafts = messages
+        if attempt:
+            drafts = [dict(m) for m in messages]
+            drafts[0]["content"] = str(drafts[0].get("content", "")) + RETRY_NUDGE
+        try:
+            return tool_call(call(drafts, tools=tools, model=model))
+        except NoToolCall as exc:
+            failures.append(str(exc))
+    raise NoToolCall(" | ".join(failures))
+
+
 def text(response) -> str:
     return (response.choices[0].message.content or "").strip()
 
@@ -120,3 +149,31 @@ if __name__ == "__main__":
             raise AssertionError(f"should have raised NoToolCall: {why}")
 
     print("llm.tool_call: ok")
+
+    # call_tool draws again when the envelope is malformed, and gives up after
+    # the second attempt rather than hammering a model that cannot comply.
+    seen = []
+
+    def draws(*replies):
+        def fake(messages, tools=None, model=None):
+            seen.append(messages[0]["content"])
+            return replies[min(len(seen) - 1, len(replies) - 1)]
+        return fake
+
+    call = draws(reply(("loki_query", "not json")), reply(("loki_query", '{"services": []}')))
+    assert call_tool([{"role": "system", "content": "pick one"}], []) == \
+        ("loki_query", {"services": []})
+    assert len(seen) == 2, "a malformed reply should be redrawn once"
+    assert RETRY_NUDGE in seen[1], "the second draw should say the first was malformed"
+    assert RETRY_NUDGE not in seen[0]
+
+    seen.clear()
+    call = draws(reply(content="I really think you should check Loki."))
+    try:
+        call_tool([{"role": "system", "content": "pick one"}], [])
+    except NoToolCall:
+        assert len(seen) == 2, "two attempts, then stop"
+    else:
+        raise AssertionError("a model that never emits a tool call must surface, not loop")
+
+    print("llm.call_tool: ok")
