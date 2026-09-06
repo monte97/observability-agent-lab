@@ -1,0 +1,3 @@
+[submodule "stack"]
+	path = stack
+	url = https://github.com/monte97/iot-observability-demo.git

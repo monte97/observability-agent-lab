@@ -37,46 +37,79 @@ which is why the schema, not the prompt, is where the constraint belongs.
 ## Quick start
 
 ```bash
-# 1. bring up a system to observe (~13 containers, under a minute)
-git clone --recurse-submodules https://github.com/monte97/iot-observability-demo
-cd iot-observability-demo
-docker compose up -d --scale node-exporter=0     # see the note below
-cd ..
+git clone --recurse-submodules https://github.com/monte97/observability-agent-lab
+cd observability-agent-lab
 
-# 2. set up the lab
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # put your model key in it
-
-# 3. ask something
-.venv/bin/python cli.py "which log lines did the store service produce recently?"
+make setup                  # venv + dependencies, then put your key in .env
+make up                     # bring the observed system up (~13 containers)
+make check                  # everything green before you go on
+make ask Q="which log lines did the store service produce recently?"
 ```
-
-> **`--scale node-exporter=0` on macOS.** node-exporter mounts `/` with a
-> propagation mode Docker Desktop refuses (`path / is mounted on / but it is
-> not a shared or slave mount`), and one failing service stops the rest of the
-> startup. On Linux you can drop the flag. The lab does not use node-exporter's
-> metrics.
->
-> **Which key.** `.env.example` defaults to `mistral/codestral-2508`, which
-> LiteLLM routes to Mistral natively — so the variable it reads is
-> `MISTRAL_API_KEY`. Point `AGENT_MODEL` at a bare model name instead (no
-> slash) to use an OpenAI-compatible gateway via `LLM_BASE_URL` /
-> `LLM_API_KEY`. See the comment in `llm.py`: mixing the two routes is the one
-> configuration mistake that costs an afternoon.
-
-Verified from a clean clone on 2026-09-06: the steps above, in this order,
-end with the agent answering and `bench/run.py` scoring 4/5.
 
 ```
   step 1: loki_query -> 200 results   {service_name=~"store"}
 
   hypotheses:
-     0.9  which log lines did the store service produce recently?
+       1  which log lines did the store service produce recently?
 
-Answer: The store service is logging normally: 200 lines in the window, the
-most recent ones showing telemetry records being written to MongoDB.
-Source: {service_name=~"store"}
+Answer: The store service is producing log lines related to telemetry.clean —
+"stored record from telemetry.clean". The query used was {service_name=~"store"}.
 ```
+
+`make help` lists everything. The observed system is
+[iot-observability-demo](https://github.com/monte97/iot-observability-demo),
+pulled in as the `stack/` submodule: a Kafka pipeline with three instrumented
+services and a real LGTM stack behind them.
+
+> **Which key.** `.env.example` defaults to `mistral/codestral-2508`, which
+> LiteLLM routes to Mistral natively — so the variable it reads is
+> `MISTRAL_API_KEY`. Point `AGENT_MODEL` at a bare model name instead (no
+> slash) to use an OpenAI-compatible gateway via `LLM_BASE_URL` /
+> `LLM_API_KEY`. Mixing the two routes is the one configuration mistake that
+> costs an afternoon — see the comment in `llm.py`.
+>
+> **On macOS** the Makefile starts the stack with `--scale node-exporter=0`:
+> that service mounts `/` in a way Docker Desktop refuses, and one failing
+> service stops the whole startup. On Linux you can drop it.
+
+Verified from a clean clone on 2026-09-06.
+
+## Reproduce the demo
+
+Four commands, and the interesting part is the last one.
+
+```bash
+make stack-state MINUTES=2        # what the agent can see right now
+make ask MINUTES=2 Q="which log lines did the store service produce recently?"
+
+make incident                     # stop the consumer that writes to MongoDB
+sleep 150                         # let its last logs fall out of the 2-minute window
+
+make ask MINUTES=2 Q="does the store service have any recent log lines?"
+make healthy                      # put it back
+```
+
+Before the incident the agent answers and cites the query it ran. After it, the
+same question gets:
+
+```
+  step 3: loki_query -> 0 results   {service_name=~"store"}
+
+  hypotheses:
+       0  does the store service have any recent log lines? [discarded]
+
+Answer: Inconclusive: no hypothesis reached the confidence threshold (0.7).
+```
+
+**That is the honest ending, and it is the point.** The service is down, the
+query is correct, and the result is empty — so the empty-evidence guardrail
+discards the hypothesis and the agent refuses to conclude. It does not invent a
+cause, which in triage is the right behaviour and is why the guardrail exists.
+
+It is also exactly where this lab stops. Turning that silence *into evidence* —
+"nothing from store for two minutes, while normalizer keeps publishing to the
+channel store is documented as consuming, therefore store is down" — takes
+rules that are not here: see [What is not here](#what-is-not-here).
 
 ## What's inside
 
@@ -88,6 +121,8 @@ Source: {service_name=~"store"}
 | `graph.py` | ~330 | The LangGraph loop: hypotheses → choose → execute → weigh → synthesize. |
 | `llm.py` | ~70 | The only place that talks to the model. Three call sites, all visible. |
 | `bench/` | ~140 | Five questions with gold queries, scored L1/L2/L3. |
+| `Makefile` | ~70 | Every command you need: setup, up, check, ask, bench, incident. |
+| `stack/` | — | The observed system, as a submodule. Not part of the agent. |
 
 ### The loop
 
@@ -164,6 +199,7 @@ Two rules the bench enforces, both learned by getting them wrong first:
   answer. Otherwise you are only measuring the happy path.
 
 ## What is not here
+<a name="what-is-not-here"></a>
 
 This lab is the skeleton. The diagnostic rules that make an agent like this
 useful on a real system — deciding when silence is itself evidence, telling a
