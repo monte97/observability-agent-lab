@@ -346,11 +346,19 @@ def node_synthesize(state: State, model: str | None = None) -> dict:
             "stop": True,
         }
 
+    # Two different jobs, two different instructions. A direct question wants an
+    # answer ("yes, 200 lines, here they are"); a symptom wants a diagnosis.
+    # Using the triage wording for both makes the agent announce "the most
+    # likely cause" to someone who just asked to see some logs.
+    role = ("You are an SRE assistant. Answer the question in 2-3 sentences, using only "
+            "the observed facts, and cite the query the data came from. Do not invent "
+            "numbers and do not speculate about causes unless asked."
+            if state.get("direct") else
+            "You are an SRE triage analyst. In 2-4 sentences, state the most likely cause "
+            "and cite the query the finding came from. Do not invent numbers.")
     response = llm.call(
         [
-            {"role": "system", "content":
-                "You are an SRE triage analyst. In 2-4 sentences, state the most likely cause "
-                "and cite the query the finding came from. Do not invent numbers."},
+            {"role": "system", "content": role},
             {"role": "user", "content":
                 f"Question: {state['question']}\nObserved: {state.get('facts', '')}\n"
                 f"Source: {(findings[-1] if findings else {}).get('query')}"},

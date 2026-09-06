@@ -74,6 +74,45 @@ services and a real LGTM stack behind them.
 
 Verified from a clean clone on 2026-09-06.
 
+## Things to try
+
+`make examples` runs the first group below, one after another, in about twenty
+seconds. The full list is in `demo-questions.txt`.
+
+**It answers** — one step each, 4-6 seconds:
+
+```bash
+make ask Q="show me what store is writing"
+make ask Q="is device-gateway logging anything?"
+make ask Q="how many log lines has normalizer produced?"
+```
+
+> Based on the observed data, the normalizer service has produced at least 200
+> log lines. The first few include normalized device IDs dev-003, dev-004 and
+> dev-005. The query used was `{service_name=~"normalizer"}`.
+
+Note what is *not* in that answer: no invented numbers, and the query is there
+so you can run it yourself.
+
+**It declines** — because nothing here can answer:
+
+```bash
+make ask Q="how many users abandoned their shopping cart today?"
+```
+
+> No tool of mine covers this question — it goes beyond what this stack exposes.
+
+**It looks, finds nothing, and refuses to conclude** — on a healthy system
+there are no errors to find:
+
+```bash
+make ask Q="are there any errors anywhere?"
+```
+
+Three cycles, every hypothesis discarded by the empty-evidence guardrail, and
+an explicit *inconclusive*. Three different outcomes, three different pieces of
+the design — and none of them is the model deciding to be careful.
+
 ## Reproduce the demo
 
 Four commands, and the interesting part is the last one.
@@ -121,7 +160,8 @@ rules that are not here: see [What is not here](#what-is-not-here).
 | `graph.py` | ~330 | The LangGraph loop: hypotheses → choose → execute → weigh → synthesize. |
 | `llm.py` | ~70 | The only place that talks to the model. Three call sites, all visible. |
 | `bench/` | ~140 | Five questions with gold queries, scored L1/L2/L3. |
-| `Makefile` | ~70 | Every command you need: setup, up, check, ask, bench, incident. |
+| `Makefile` | ~80 | Every command you need: setup, up, check, ask, examples, bench, incident. |
+| `demo-questions.txt` | — | Questions to try, grouped by what they show. |
 | `stack/` | — | The observed system, as a submodule. Not part of the agent. |
 
 ### The loop
