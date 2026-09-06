@@ -37,9 +37,11 @@ which is why the schema, not the prompt, is where the constraint belongs.
 ## Quick start
 
 ```bash
-# 1. bring up a system to observe (12 containers, ~40s)
+# 1. bring up a system to observe (~13 containers, under a minute)
 git clone --recurse-submodules https://github.com/monte97/iot-observability-demo
-cd iot-observability-demo && docker compose up -d && cd ..
+cd iot-observability-demo
+docker compose up -d --scale node-exporter=0     # see the note below
+cd ..
 
 # 2. set up the lab
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
@@ -48,6 +50,22 @@ cp .env.example .env        # put your model key in it
 # 3. ask something
 .venv/bin/python cli.py "which log lines did the store service produce recently?"
 ```
+
+> **`--scale node-exporter=0` on macOS.** node-exporter mounts `/` with a
+> propagation mode Docker Desktop refuses (`path / is mounted on / but it is
+> not a shared or slave mount`), and one failing service stops the rest of the
+> startup. On Linux you can drop the flag. The lab does not use node-exporter's
+> metrics.
+>
+> **Which key.** `.env.example` defaults to `mistral/codestral-2508`, which
+> LiteLLM routes to Mistral natively — so the variable it reads is
+> `MISTRAL_API_KEY`. Point `AGENT_MODEL` at a bare model name instead (no
+> slash) to use an OpenAI-compatible gateway via `LLM_BASE_URL` /
+> `LLM_API_KEY`. See the comment in `llm.py`: mixing the two routes is the one
+> configuration mistake that costs an afternoon.
+
+Verified from a clean clone on 2026-09-06: the steps above, in this order,
+end with the agent answering and `bench/run.py` scoring 4/5.
 
 ```
   step 1: loki_query -> 200 results   {service_name=~"store"}
