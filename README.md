@@ -159,7 +159,7 @@ rules that are not here: see [What is not here](#what-is-not-here).
 | `tools.py` | ~130 | The schemas (with runtime enums) and the query composers. **The core idea.** |
 | `backends.py` | ~80 | Runs the composed query, reduces the payload to one readable fact. |
 | `graph.py` | ~440 | The LangGraph loop: hypotheses → choose → execute → weigh → synthesize. |
-| `llm.py` | ~180 | The only place that talks to the model. Three call sites, all visible.
+| `llm.py` | ~180 | The only place that talks to the model. Four call sites, all visible.
 Run it directly for its self-check. |
 | `bench/` | ~140 | Five questions with gold queries, scored L1/L2/L3. |
 | `Makefile` | ~80 | Every command you need: setup, up, check, ask, examples, bench, incident. |
@@ -169,13 +169,14 @@ Run it directly for its self-check. |
 ### The loop
 
 ```
-discover → hypotheses → choose → execute → weigh ─┬─→ synthesize
-                          ^                       │
-                          └───────────────────────┘
+discover → hypotheses → choose → execute → process → weigh ─┬─→ synthesize
+                          ^                                 │
+                          └─────────────────────────────────┘
 ```
 
-Six nodes; the model is called in **three** of them (`hypotheses`, `choose`,
-`weigh`, plus the final prose). Discovery, query composition, execution and the
+Seven nodes; the model is called in **four** of them (`hypotheses`, `choose`,
+`weigh`, `synthesize`) — and in direct mode `hypotheses` sits out, which leaves
+three. Discovery, query composition, execution, reading the result and the
 decision to keep going are plain code.
 
 What makes this more than a `for` loop around a chat call is the **exit

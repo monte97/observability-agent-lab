@@ -1,13 +1,14 @@
 """The diagnostic loop: hypotheses -> investigate -> weigh, and stop when it
 makes sense to stop.
 
-Six nodes, and the model is called in exactly three of them. Everything else —
-discovery, query composition, execution, and the decision to keep going — is
-plain code.
+Seven nodes, and the model is called in four of them. Everything else —
+discovery, query composition, execution, reading the result, and the decision
+to keep going — is plain code. In direct mode `hypotheses` sits out too, which
+leaves three.
 
-    discover -> hypotheses -> choose -> execute -> weigh -+-> synthesize
-                                 ^                        |
-                                 +------------------------+
+    discover -> hypotheses -> choose -> execute -> process -> weigh -+-> synthesize
+                                 ^                                   |
+                                 +-----------------------------------+
 
 What makes this different from a `for` loop around a chat call is the exit
 condition: the loop stops when the evidence says so (a hypothesis crossed the
@@ -58,7 +59,7 @@ def node_discover(state: State, start: int, end: int) -> dict:
 
 
 # --------------------------------------------------------------------------
-# hypotheses — model call 1 of 3
+# hypotheses — model call 1 of 4 (skipped entirely in direct mode)
 # --------------------------------------------------------------------------
 
 def _hypotheses_schema() -> dict:
@@ -139,7 +140,7 @@ def node_hypotheses(state: State, model: str | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------
-# choose — model call 2 of 3
+# choose — model call 2 of 4
 # --------------------------------------------------------------------------
 
 def node_choose(state: State, model: str | None = None) -> dict:
@@ -242,7 +243,7 @@ def node_process(state: State) -> dict:
 
 
 # --------------------------------------------------------------------------
-# weigh — model call 3 of 3, plus the deterministic guardrail
+# weigh — model call 3 of 4, plus the deterministic guardrail
 # --------------------------------------------------------------------------
 
 def _weigh_schema(count: int) -> dict:
@@ -353,7 +354,7 @@ def route_after_weigh(state: State) -> str:
 
 
 # --------------------------------------------------------------------------
-# synthesize — fixed answers where the code already knows what to say
+# synthesize — model call 4 of 4, and fixed answers where the code already knows
 # --------------------------------------------------------------------------
 
 def node_synthesize(state: State, model: str | None = None) -> dict:
