@@ -1,0 +1,31 @@
+# Five questions with a gold query each: what a competent human would have
+# written to answer them. The bench compares the agent's result set with the
+# gold one — see bench/run.py for what L1/L2/L3 mean.
+#
+# These are written for iot-observability-demo. Point them at your own stack by
+# replacing the service and metric names.
+
+- id: logs-of-a-service
+  question: "which log lines did the store service produce recently?"
+  backend: loki
+  gold: '{service_name=~"store"}'
+
+- id: filtered-by-level
+  question: "show me the info-level log lines of normalizer"
+  backend: loki
+  gold: '{service_name=~"normalizer"} | detected_level="info"'
+
+- id: logs-of-two-services
+  question: "show me the logs of normalizer and store together"
+  backend: loki
+  gold: '{service_name=~"normalizer|store"}'
+
+- id: jvm-classes
+  question: "how many classes are loaded in the JVM?"
+  backend: mimir
+  gold: 'jvm_class_count'
+
+- id: not-covered
+  question: "how many users abandoned their shopping cart today?"
+  backend: sentinel
+  gold: null   # nothing answers this: the agent is expected to say so

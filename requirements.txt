@@ -1,0 +1,5 @@
+litellm>=1.60
+requests>=2.32
+pyyaml>=6.0
+python-dotenv>=1.0
+langgraph>=1.0
