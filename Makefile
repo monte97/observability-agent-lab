@@ -51,7 +51,9 @@ check:       ## Is everything ready? (run this before anything else)
 	          http://localhost:9009/prometheus/api/v1/labels; do \
 	  printf '  %-52s %s\n' "$$u" "$$(curl -s -m 5 -o /dev/null -w '%{http_code}' $$u)"; done
 	@test -x $(PY) && echo "  venv: ok" || echo "  venv: MISSING (make setup)"
-	@grep -qE '^[A-Z_]*API_KEY=.+' .env 2>/dev/null && echo "  model key: ok" || echo "  model key: MISSING in .env"
+	@if grep -qE '^[A-Z_]*API_KEY=.+' .env 2>/dev/null; then echo "  model key: ok"; \
+	elif grep -qE '^LLM_BASE_URL=.+' .env 2>/dev/null; then echo "  model key: none (fine for a local server at LLM_BASE_URL)"; \
+	else echo "  model key: MISSING in .env"; fi
 
 stack-state: ## What the agent can see right now
 	@cd $(ROOT) && $(ENV) $(PY) -c "import time, discovery; \

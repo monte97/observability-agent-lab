@@ -16,6 +16,13 @@ to show the shape of the thing. It runs against
 [iot-observability-demo](https://github.com/monte97/iot-observability-demo),
 which gives you a real Kafka pipeline with real telemetry in a few commands.
 
+It is the companion code of the talk **"L'incidente non parla PromQL"**
+(DevFest Milano 2026): [talk page](https://montelli.dev/talks/incidente-non-parla-promql/)
+and [slides (PDF, Italian)](https://montelli.dev/files/talk-promql-devfest-milano-2026.pdf).
+The slides also show a coordinator and a team of agents: that system is not in
+this repo. This one is the single-agent skeleton they grew from: same loop,
+same guardrails, none of the diagnostic rules (see [What is not here](#what-is-not-here)).
+
 ---
 
 ## Why not just ask the model for the query?
@@ -61,18 +68,37 @@ Answer: The store service is producing log lines related to telemetry.clean —
 pulled in as the `stack/` submodule: a Kafka pipeline with three instrumented
 services and a real LGTM stack behind them.
 
-> **Which key.** `.env.example` defaults to `mistral/codestral-2508`, which
-> LiteLLM routes to Mistral natively — so the variable it reads is
-> `MISTRAL_API_KEY`. Point `AGENT_MODEL` at a bare model name instead (no
-> slash) to use an OpenAI-compatible gateway via `LLM_BASE_URL` /
-> `LLM_API_KEY`. Mixing the two routes is the one configuration mistake that
-> costs an afternoon — see the comment in `llm.py`.
->
 > **On macOS** the Makefile starts the stack with `--scale node-exporter=0`:
 > that service mounts `/` in a way Docker Desktop refuses, and one failing
 > service stops the whole startup. On Linux you can drop it.
 
-Verified from a clean clone on 2026-09-06.
+## Pick your model
+
+Every call goes through [LiteLLM](https://docs.litellm.ai/docs/providers), so
+the provider is yours to choose. Two routes, set in `.env`:
+
+| You want | `AGENT_MODEL` | Also set |
+|---|---|---|
+| A hosted provider (Mistral, OpenAI, Anthropic, Gemini, …) | `provider/model`, e.g. `mistral/codestral-2508` | that provider's own key: `MISTRAL_API_KEY`, `OPENAI_API_KEY`, … |
+| A gateway or a local server (LM Studio, Ollama, vLLM) | the bare model name, no slash | `LLM_BASE_URL`, plus `LLM_API_KEY` if the endpoint wants one |
+
+Mixing the two routes is the one configuration mistake that costs an
+afternoon: a `provider/model` name never goes to `LLM_BASE_URL`. See the
+comment in `llm.py`.
+
+The one hard requirement: the model must support **required tool calls**
+(`tool_choice="required"`). The agent never accepts prose where a tool call is
+expected, so a model that cannot do this fails loudly instead of guessing.
+
+Verified on 2026-10-09, from a clean clone, on the bench below:
+
+| Route | Model | `make ask` | Bench L3 |
+|---|---|---|---|
+| Hosted, native | `mistral/codestral-2508` | answers, 7 s | 4/5 |
+| Local, no key | `qwen3.5-4b-mlx` in LM Studio | answers or stays inconclusive, 20-50 s | 4/5 |
+
+A small local model is slower and less sure of itself, but it keeps to the
+guardrails: when it is not confident it says *inconclusive*, it does not invent.
 
 ## Things to try
 

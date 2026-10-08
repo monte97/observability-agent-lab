@@ -31,7 +31,14 @@ def main(argv: list[str] | None = None) -> int:
     end = int(time.time())
     start = end - args.minutes * 60
 
-    state = graph.run(args.question, start, end, args.model, direct=not args.scenario)
+    try:
+        state = graph.run(args.question, start, end, args.model, direct=not args.scenario)
+    except Exception as exc:  # the provider's own message says what to fix; the stack trace does not
+        if type(exc).__module__.split(".")[0] != "litellm":
+            raise
+        print(f"\nThe model call failed: {' '.join(str(exc).split())[:400]}\n"
+              "Check AGENT_MODEL and its key in .env (see .env.example).\n", file=sys.stderr)
+        return 1
 
     print()
     for i, finding in enumerate(state.get("findings") or [], start=1):

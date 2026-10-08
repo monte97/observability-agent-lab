@@ -53,8 +53,9 @@ def call(messages: list[dict], tools: list[dict] | None = None, model: str | Non
     if not namespaced:
         if os.environ.get("LLM_BASE_URL"):
             kwargs["api_base"] = os.environ["LLM_BASE_URL"]
-        if os.environ.get("LLM_API_KEY"):
-            kwargs["api_key"] = os.environ["LLM_API_KEY"]
+        # A local server (LM Studio, Ollama, vLLM) needs no key, but the OpenAI
+        # client refuses to send a request without one: any string will do.
+        kwargs["api_key"] = os.environ.get("LLM_API_KEY") or "no-key"
     return litellm.completion(**kwargs)
 
 
