@@ -1,8 +1,7 @@
 """The only place that talks to the model.
 
 Kept tiny and separate so that every call site is visible in one `grep`: in
-this lab the model is called in exactly three places, and being able to prove
-it is part of the argument.
+this lab every model call goes through `call`, and `CALLS` counts them.
 """
 
 from __future__ import annotations
@@ -12,9 +11,12 @@ import os
 
 import litellm
 
-from tools import SENTINEL
+from common.tools import SENTINEL
 
 MAX_TOKENS = 2048  # tool calls get truncated below this on some gateways
+
+# Every call to the model, counted: the slides compare steps by calls per investigation.
+CALLS = 0
 
 
 class NoToolCall(Exception):
@@ -39,6 +41,8 @@ def call(messages: list[dict], tools: list[dict] | None = None, model: str | Non
       ``LLM_API_KEY``. This is how you point the lab at a gateway or a local
       server.
     """
+    global CALLS
+    CALLS += 1
     name = model or os.environ.get("AGENT_MODEL", "mistral/codestral-2508")
     namespaced = "/" in name
 
@@ -119,7 +123,7 @@ def text(response) -> str:
 
 
 if __name__ == "__main__":
-    # Run with: .venv/bin/python llm.py
+    # Run with: .venv/bin/python -m common.llm
     # Every case below is a real reply this model produced against the live
     # stack — the malformed ones cost an afternoon of "something went wrong".
     from types import SimpleNamespace as N

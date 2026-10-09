@@ -59,15 +59,56 @@ def mimir_labels(start: int, end: int) -> list[str]:
     return sorted(l for l in ((payload or {}).get("data") or []) if l != "__name__")
 
 
+# How far back "it used to log" looks. A service that went quiet ten minutes
+# ago must still be nameable, or the agent could not even ask about it.
+HISTORY = 3600
+
+
+def last_seen(service: str, start: int, end: int) -> int | None:
+    """Unix time of the newest log line of `service` in the window, or None."""
+    payload = _get(
+        f"{os.environ['LOKI_URL']}/loki/api/v1/query_range",
+        {"query": '{service_name="%s"}' % service, "start": start * 10**9,
+         "end": end * 10**9, "limit": 1, "direction": "backward"},
+    )
+    streams = ((payload or {}).get("data") or {}).get("result") or []
+    stamps = [int(v[0]) for s in streams for v in s.get("values", [])]
+    return max(stamps) // 10**9 if stamps else None
+
+
+def muted(services: list[str], start: int, end: int) -> list[dict]:
+    """Services that logged in the last hour and are silent in [start, end].
+
+    ponytail: "it used to log, now it does not" is all this knows. It cannot
+    tell a stopped service from one with nothing to do: that takes rules this
+    lab does not have (see "What is not here" in the README).
+
+    Sorted freshest silence first: the service that went quiet last looks like
+    the most recent change. Plausible, and on a pipeline it is backwards (the
+    consumer goes quiet a moment after its producer stops). Step 04 fixes it.
+    """
+    out = []
+    for service in services:
+        seen = last_seen(service, end - HISTORY, end)
+        if seen is not None and seen < start:
+            out.append({"service": service, "last_seen": seen})
+    return sorted(out, key=lambda m: m["last_seen"], reverse=True)
+
+
 def topology(start: int, end: int) -> dict:
     """Everything the agent is allowed to name, discovered at runtime.
 
     Called once per question. The system it observes may change between two
     questions, and the agent must follow it — a topology written by hand in a
     prompt is a topology that goes stale.
+
+    Services come from the last hour, so a service that has just gone quiet is
+    still in the vocabulary; `muted` says which ones are quiet right now.
     """
+    services = loki_services(end - HISTORY, end)
     return {
-        "services": loki_services(start, end),
+        "services": services,
         "metrics": mimir_metrics(start, end),
         "labels": mimir_labels(start, end),
+        "muted": muted(services, start, end),
     }

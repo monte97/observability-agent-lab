@@ -1,0 +1,13 @@
+# Who feeds whom in the observed system, written by hand from its documentation
+# (stack/docs/observability-best-practices.md):
+#
+#   device-gateway -[kafka telemetry.raw]-> normalizer -[kafka telemetry.clean]-> store -> MongoDB
+#
+# ponytail: a file you keep up to date. The system on stage reads these edges
+# from the documentation itself; here they are declared, so the rule is visible.
+- from: device-gateway
+  to: normalizer
+  via: telemetry.raw
+- from: normalizer
+  to: store
+  via: telemetry.clean
