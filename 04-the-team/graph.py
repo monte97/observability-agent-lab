@@ -488,7 +488,7 @@ class TeamState(TypedDict, total=False):
     # Annotated[type, fn] tells LangGraph how to merge two writes to this key:
     # fn(old, new), here list concatenation. Without it, several agents writing
     # `results` in the same step would conflict (LangGraph raises
-    # InvalidUpdateError) instead of piling up.
+    # InvalidUpdateError) instead of being appended.
     results: Annotated[list[dict], operator.add]
     round: int
     verdict: dict
@@ -502,10 +502,11 @@ def node_spawn(state: TeamState) -> dict:
 def send_agents(state: TeamState) -> list[Send]:
     """One `Send` per hypothesis: they start together, each with its own private state.
 
-    This is the router of a conditional edge, returning Sends instead of a node
-    name. `Send("investigate", payload)` means: run that node once, with
-    `payload` as its input. N Sends give N parallel runs of the same node, and
-    the payload is not the shared state: each agent sees only its own hypothesis.
+    This is the router of a conditional edge. It returns Sends where the router
+    of step 03 returns a node name. `Send("investigate", payload)` means: run
+    that node once, with `payload` as its input. N Sends give N parallel runs of
+    the same node. Each run receives its own payload (one hypothesis) and never
+    the shared state.
     """
     hypotheses = state["hypotheses"]
     open_ = [i for i, h in enumerate(hypotheses) if not h.get("discarded")]
@@ -532,7 +533,7 @@ SCORE_ONE = {
 def node_investigate(task: dict, start: int, end: int, model: str | None = None) -> dict:
     """One agent, one hypothesis: specialist, tool, facts, score. Three calls.
 
-    `task` is the private payload of one Send, not the TeamState. The node
+    `task` is the private payload of one Send. The node
     returns a one-item `results` list; the reducer concatenates the lists of all
     the parallel runs.
 
@@ -612,7 +613,7 @@ def node_collect(state: TeamState) -> Command:
 
 def build_team(start: int, end: int, model: str | None = None):
     # Compiled per question, like build_graph: start, end and model are closed over.
-    # The compiled result is itself a runnable graph: that is what makes it a subgraph.
+    # The compiled result is a runnable graph, which allows running it inside a node.
     team = StateGraph(TeamState)
     team.add_node("spawn", node_spawn)
     team.add_node("investigate", lambda t: node_investigate(t, start, end, model))
@@ -622,8 +623,8 @@ def build_team(start: int, end: int, model: str | None = None):
     team.add_edge(START, "spawn")
     # The router returns Sends; the list says which node they may target.
     team.add_conditional_edges("spawn", send_agents, ["investigate"])
-    # Superstep 1: spawn. Superstep 2: all the investigate runs, in parallel.
-    # Superstep 3: collect, once, after every branch has written its results.
+    # In each round: spawn runs in one superstep, all the investigate runs in the
+    # next (in parallel), then collect once, after every branch has written its results.
     team.add_edge("investigate", "collect")
     return team.compile()
 
@@ -631,9 +632,9 @@ def build_team(start: int, end: int, model: str | None = None):
 def node_team(state: State, start: int, end: int, model: str | None = None) -> dict:
     """The subgraph, run as one node of the coordinator's graph.
 
-    A compiled graph has the same `invoke` as any runnable, so it can be called
-    inside a node. The parent sees one step: it passes some keys in and merges
-    back only what this function returns.
+    A compiled graph has the same `invoke` as any runnable, so a node can call
+    it. To the parent this is one step: it passes some keys in and merges back
+    what this function returns.
     """
     out = build_team(start, end, model).invoke(
         {"question": state["question"], "topology": state["topology"],

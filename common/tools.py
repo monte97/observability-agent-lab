@@ -16,7 +16,7 @@ than making it impossible upstream.
 Concepts in this file:
 
 * tool calling: the model answers with a tool name and JSON arguments that
-  follow the JSON Schema we declare (`*_schema`);
+  follow the JSON Schema declared in `*_schema`;
 * `enum` as a closed vocabulary, filled at runtime (`loki_schema`, `mimir_schema`);
 * LogQL: stream selector `{label=~"regex"}` plus a `| detected_level="..."`
   label filter (`loki_compose`);

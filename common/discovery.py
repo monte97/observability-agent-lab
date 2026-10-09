@@ -95,7 +95,7 @@ def last_seen(service: str, start: int, end: int) -> int | None:
     `query_range` runs a LogQL query over an interval. `{service_name="x"}` is
     a stream selector: it picks every log stream carrying that label. Loki wants
     nanoseconds (hence `* 10**9`). `direction=backward` returns newest first and
-    `limit=1` keeps one line, so we get the latest timestamp and nothing more.
+    `limit=1` keeps one line, so the result is the latest timestamp.
     """
     payload = _get(
         f"{os.environ['LOKI_URL']}/loki/api/v1/query_range",
