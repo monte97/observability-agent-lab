@@ -66,7 +66,7 @@ class State(TypedDict, total=False):
     This TypedDict is the graph's schema: each key is a channel that nodes read
     and write. A node never edits the state in place; it returns a partial dict
     ("what I changed") and LangGraph merges it in. A key with no reducer, like
-    the ones here, is simply overwritten by the last write.
+    the ones here, is overwritten by the last write.
     """
     question: str
     direct: bool | None     # <- caller, or meta: True = lookup, False = symptom
@@ -116,7 +116,7 @@ def order_by_rule(muted: list[dict], dependencies: list[dict]) -> list[dict]:
 def node_discover(state: State, start: int, end: int) -> dict:
     """A node is a plain function: state in, partial update out.
 
-    `start` and `end` are not state: build_graph closes over them (see there).
+    `start` and `end` reach it through a closure in build_graph (see there).
     """
     topology = discovery.topology(start, end)
     dependencies = yaml.safe_load(DEPENDENCIES.read_text()) or []
@@ -671,7 +671,7 @@ def build_graph(start: int, end: int, model: str | None = None):
     """Describe the graph, then compile it. Built per question.
 
     add_node wants a function of the state alone, so the lambdas close over
-    start, end and model: they are fixed for this question, not part of the state.
+    start, end and model. They are fixed for this question and stay out of the state.
     """
     graph = StateGraph(State)
     graph.add_node("discover", lambda s: node_discover(s, start, end))
