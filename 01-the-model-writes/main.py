@@ -10,6 +10,14 @@ it. Two calls: one to write the query, one to answer from what came back.
 Slide "Dati veri, domanda sbagliata": with the real names in the prompt the
 queries stop coming back empty, and the answers stay wrong. Run the bench on
 this step to see it here: `make bench STEP=01`.
+
+Concepts in this file:
+
+* LogQL (Loki, logs) and PromQL (Mimir, metrics) written by the model: a
+  syntax error, or a made-up label, is a query the backend refuses;
+* a valid query on made-up names runs fine and returns zero results, which is
+  a different fact from a refusal (`backends.to_facts` keeps them apart);
+* tool calling used only to get structured output (`WRITE_QUERY`).
 """
 
 from __future__ import annotations

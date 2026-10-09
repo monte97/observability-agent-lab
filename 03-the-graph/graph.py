@@ -25,6 +25,15 @@ What changed from step 02:
 
 It closes at the first hypothesis that holds. Step 04 is what happens when
 the first one that holds is the symptom.
+
+Concepts in this file (LangGraph, in the order you meet them):
+
+* state schema: `State`, a TypedDict with `total=False`; nodes return partial
+  updates and LangGraph merges them (`State`, every `node_*`);
+* nodes and edges: `add_node`, `add_edge`, `START`, `END` (`build_graph`);
+* closures: the lambdas pass `start`, `end`, `model` into nodes (`build_graph`);
+* conditional edges: a router returns the next node's name (`route_after_weigh`);
+* `compile()` then `invoke()` (`build_graph`, `run`).
 """
 
 from __future__ import annotations
@@ -47,7 +56,13 @@ MAX_CYCLES = 3
 
 class State(TypedDict, total=False):
     """Shared state (slide "Lo stato: la memoria condivisa"). `total=False`:
-    every node returns only the fields it produced, and LangGraph merges them."""
+    every node returns only the fields it produced, and LangGraph merges them.
+
+    This TypedDict is the graph's schema: each key is a channel that nodes read
+    and write. A node never edits the state in place; it returns a partial dict
+    ("what I changed") and LangGraph merges it in. A key with no reducer, like
+    the ones here, is simply overwritten by the last write.
+    """
     question: str
     direct: bool | None     # <- caller, or meta: True = lookup, False = symptom
     topology: dict          # <- discover
@@ -68,6 +83,10 @@ class State(TypedDict, total=False):
 # --------------------------------------------------------------------------
 
 def node_discover(state: State, start: int, end: int) -> dict:
+    """A node is a plain function: state in, partial update out.
+
+    `start` and `end` are not state: build_graph closes over them (see there).
+    """
     return {"topology": discovery.topology(start, end)}
 
 
@@ -88,7 +107,7 @@ META = {
 def node_meta(state: State, model: str | None = None) -> dict:
     """Investigate, or just look? One call, skipped when the caller already said."""
     if state.get("direct") is not None:
-        return {}
+        return {}   # an empty update: "I changed nothing", the state passes through
     try:
         _, args = llm.call_tool([
             {"role": "system", "content":
@@ -198,6 +217,8 @@ def node_execute(state: State, start: int, end: int, model: str | None = None) -
     if state.get("error"):
         return {}
     choice = state["choice"]
+    # Copy first: the state belongs to the graph. The node edits its own copy
+    # and hands it back as an update.
     hypotheses = copy.deepcopy(state["hypotheses"])
     target = hypotheses[choice["hypothesis_index"]]
 
@@ -217,6 +238,8 @@ def node_execute(state: State, start: int, end: int, model: str | None = None) -
     target["investigated"] = True
     if finding.get("hits") or is_silence(target, finding):
         target["evidence"] = finding["query"]
+    # `findings` has no reducer, so a bare [finding] would replace the history:
+    # the node appends by hand. Step 04's `results` does it with a reducer.
     return {"findings": list(state.get("findings") or []) + [finding], "hypotheses": hypotheses}
 
 
@@ -224,7 +247,12 @@ def is_silence(hypothesis: dict, finding: dict) -> bool:
     """An empty result that is the evidence: ALL the logs of a service the
     hypothesis says is down, read and found empty. With a level filter, empty
     only means "no errors". Only for the code's own hypotheses about a service
-    discovery saw go quiet. ponytail: silence counts, whatever its cause."""
+    discovery saw go quiet. ponytail: silence counts, whatever its cause.
+
+    Everywhere else an empty result is only "valid query, nothing found", which
+    proves nothing; a service that stops logging is evidence only in this
+    declared case.
+    """
     return (bool(hypothesis.get("silent")) and finding.get("tool") == "loki_query"
             and finding.get("hits") == 0 and finding.get("ok") and not finding.get("level")
             and hypothesis.get("service") in (finding.get("services") or []))
@@ -337,6 +365,9 @@ def best(state: State) -> float:
                 if not h.get("discarded")), default=0)
 
 
+# A router: a function from the state to the NAME of the next node. It only
+# reads; add_conditional_edges (see build_graph) maps each name it may return
+# to a node. This is how a graph loops: "choose" sends the run back.
 def route_after_weigh(state: State) -> str:
     """Another cycle, or the answer? Plain `if`s on the evidence, never the model."""
     if state.get("stop") or state.get("error") or (state.get("cycle") or 0) >= MAX_CYCLES:
@@ -391,6 +422,11 @@ def node_synthesize(state: State, model: str | None = None) -> dict:
 # --------------------------------------------------------------------------
 
 def build_graph(start: int, end: int, model: str | None = None):
+    """Describe the graph, then compile it. Built per question.
+
+    add_node wants a function of the state alone, so the lambdas close over
+    start, end and model: they are fixed for this question, not part of the state.
+    """
     graph = StateGraph(State)
     graph.add_node("discover", lambda s: node_discover(s, start, end))
     graph.add_node("meta", lambda s: node_meta(s, model))
@@ -401,6 +437,8 @@ def build_graph(start: int, end: int, model: str | None = None):
     graph.add_node("weigh", lambda s: node_weigh(s, model))
     graph.add_node("synthesize", lambda s: node_synthesize(s, model))
 
+    # START and END are the graph's entry and exit markers. add_edge(a, b):
+    # when a finishes, b runs next, always.
     graph.add_edge(START, "discover")
     graph.add_edge("discover", "meta")
     graph.add_edge("meta", "hypotheses")
@@ -408,13 +446,19 @@ def build_graph(start: int, end: int, model: str | None = None):
     graph.add_edge("choose", "execute")
     graph.add_edge("execute", "process")
     graph.add_edge("process", "weigh")
+    # A conditional edge: after "weigh" the router picks the next node by name;
+    # the dict lists every name it may return.
     graph.add_conditional_edges("weigh", route_after_weigh,
                                 {"choose": "choose", "synthesize": "synthesize"})
     graph.add_edge("synthesize", END)
+    # Until compile() this is only a description. compile() checks the wiring
+    # and returns a runnable. It executes in supersteps: all nodes that are
+    # ready run, their updates are merged into the state, then the next step.
     return graph.compile()
 
 
 def run(question: str, start: int, end: int, model: str | None = None,
         direct: bool | None = None) -> State:
     """One question, one run. Every question rediscovers the system: it may have changed."""
+    # invoke() takes the initial state, runs START to END, and returns the final state.
     return build_graph(start, end, model).invoke({"question": question, "direct": direct})

@@ -25,6 +25,15 @@ Two answers, kept together (slide "La squadra, quando la regola non basta"):
                                                          trigger -> team ----+
 
 Diff this folder against 03-the-graph to see exactly what Act IV adds.
+
+Concepts Act IV adds (the Act III ones are explained in 03-the-graph/graph.py):
+
+* `Send`: map, one invocation of a node per item, each with a private input
+  (`send_agents`);
+* reducer: `Annotated[list, operator.add]` merges parallel writes (`TeamState`);
+* `Command(goto=..., update=...)` and `destinations` (`node_collect`, `build_team`);
+* subgraph: a compiled graph run inside a node (`node_team`);
+* supersteps: `collect` runs once, after every parallel branch (`build_team`).
 """
 
 from __future__ import annotations
@@ -52,7 +61,13 @@ DEPENDENCIES = pathlib.Path(__file__).resolve().parent / "dependencies.yaml"
 
 class State(TypedDict, total=False):
     """Shared state (slide "Lo stato: la memoria condivisa"). `total=False`:
-    every node returns only the fields it produced, and LangGraph merges them."""
+    every node returns only the fields it produced, and LangGraph merges them.
+
+    This TypedDict is the graph's schema: each key is a channel that nodes read
+    and write. A node never edits the state in place; it returns a partial dict
+    ("what I changed") and LangGraph merges it in. A key with no reducer, like
+    the ones here, is simply overwritten by the last write.
+    """
     question: str
     direct: bool | None     # <- caller, or meta: True = lookup, False = symptom
     topology: dict          # <- discover
@@ -99,6 +114,10 @@ def order_by_rule(muted: list[dict], dependencies: list[dict]) -> list[dict]:
 
 
 def node_discover(state: State, start: int, end: int) -> dict:
+    """A node is a plain function: state in, partial update out.
+
+    `start` and `end` are not state: build_graph closes over them (see there).
+    """
     topology = discovery.topology(start, end)
     dependencies = yaml.safe_load(DEPENDENCIES.read_text()) or []
     topology["dependencies"] = dependencies
@@ -124,7 +143,7 @@ META = {
 def node_meta(state: State, model: str | None = None) -> dict:
     """Investigate, or just look? One call, skipped when the caller already said."""
     if state.get("direct") is not None:
-        return {}
+        return {}   # an empty update: "I changed nothing", the state passes through
     try:
         _, args = llm.call_tool([
             {"role": "system", "content":
@@ -234,6 +253,8 @@ def node_execute(state: State, start: int, end: int, model: str | None = None) -
     if state.get("error"):
         return {}
     choice = state["choice"]
+    # Copy first: the state belongs to the graph. The node edits its own copy
+    # and hands it back as an update.
     hypotheses = copy.deepcopy(state["hypotheses"])
     target = hypotheses[choice["hypothesis_index"]]
 
@@ -253,6 +274,8 @@ def node_execute(state: State, start: int, end: int, model: str | None = None) -
     target["investigated"] = True
     if finding.get("hits") or is_silence(target, finding):
         target["evidence"] = finding["query"]
+    # `findings` has no reducer, so a bare [finding] would replace the history:
+    # the node appends by hand. Step 04's `results` does it with a reducer.
     return {"findings": list(state.get("findings") or []) + [finding], "hypotheses": hypotheses}
 
 
@@ -260,7 +283,12 @@ def is_silence(hypothesis: dict, finding: dict) -> bool:
     """An empty result that is the evidence: ALL the logs of a service the
     hypothesis says is down, read and found empty. With a level filter, empty
     only means "no errors". Only for the code's own hypotheses about a service
-    discovery saw go quiet. ponytail: silence counts, whatever its cause."""
+    discovery saw go quiet. ponytail: silence counts, whatever its cause.
+
+    Everywhere else an empty result is only "valid query, nothing found", which
+    proves nothing; a service that stops logging is evidence only in this
+    declared case.
+    """
     return (bool(hypothesis.get("silent")) and finding.get("tool") == "loki_query"
             and finding.get("hits") == 0 and finding.get("ok") and not finding.get("level")
             and hypothesis.get("service") in (finding.get("services") or []))
@@ -388,6 +416,9 @@ def trigger(state: State) -> str:
     return "two hypotheses above the threshold" if len(strong) >= 2 else ""
 
 
+# A router: a function from the state to the NAME of the next node. It only
+# reads; add_conditional_edges (see build_graph) maps each name it may return
+# to a node. This is how a graph loops: "choose" sends the run back.
 def route_after_weigh(state: State) -> str:
     """Another cycle, the answer, or the team? Plain `if`s on the evidence, never the model."""
     if state.get("stop") or state.get("error"):
@@ -448,21 +479,34 @@ def node_synthesize(state: State, model: str | None = None) -> dict:
 # --------------------------------------------------------------------------
 
 class TeamState(TypedDict, total=False):
+    """The subgraph's own state. It is separate from `State`: the parent hands
+    in some keys and reads back what it needs (see `node_team`)."""
     question: str
     topology: dict
     hypotheses: list[dict]
     # The reducer: every agent appends its result, none overwrites another's.
+    # Annotated[type, fn] tells LangGraph how to merge two writes to this key:
+    # fn(old, new), here list concatenation. Without it, several agents writing
+    # `results` in the same step would conflict (LangGraph raises
+    # InvalidUpdateError) instead of piling up.
     results: Annotated[list[dict], operator.add]
     round: int
     verdict: dict
 
 
 def node_spawn(state: TeamState) -> dict:
+    """Counts the rounds. The fan-out itself happens on spawn's outgoing edge."""
     return {"round": (state.get("round") or 0) + 1}
 
 
 def send_agents(state: TeamState) -> list[Send]:
-    """One `Send` per hypothesis: they start together, each with its own private state."""
+    """One `Send` per hypothesis: they start together, each with its own private state.
+
+    This is the router of a conditional edge, returning Sends instead of a node
+    name. `Send("investigate", payload)` means: run that node once, with
+    `payload` as its input. N Sends give N parallel runs of the same node, and
+    the payload is not the shared state: each agent sees only its own hypothesis.
+    """
     hypotheses = state["hypotheses"]
     open_ = [i for i, h in enumerate(hypotheses) if not h.get("discarded")]
     top = sorted(open_, key=lambda i: -hypotheses[i].get("confidence", 0))[:TEAM_SIZE]
@@ -487,6 +531,10 @@ SCORE_ONE = {
 
 def node_investigate(task: dict, start: int, end: int, model: str | None = None) -> dict:
     """One agent, one hypothesis: specialist, tool, facts, score. Three calls.
+
+    `task` is the private payload of one Send, not the TeamState. The node
+    returns a one-item `results` list; the reducer concatenates the lists of all
+    the parallel runs.
 
     The same guardrail as the coordinator's weigh: an empty result that is not
     the evidence leaves the hypothesis at 0, whatever the model said.
@@ -539,7 +587,12 @@ def upstream_rank(hypothesis: dict, topology: dict) -> int:
 
 
 def node_collect(state: TeamState) -> Command:
-    """Compare the results, then decide where to go: the answer, or one replica."""
+    """Compare the results, then decide where to go: the answer, or one replica.
+
+    `Command(goto=..., update=...)` lets a node do two things at once: write to
+    the state (`update`) and choose the next node (`goto`), with no edge or
+    router. Here it is how the subgraph loops (back to spawn) or ends.
+    """
     mine = [r for r in state.get("results") or [] if r["round"] == state["round"]]
     top = max((r["confidence"] for r in mine), default=0)
     if top < CONFIDENCE_THRESHOLD and state["round"] < 2:
@@ -559,18 +612,29 @@ def node_collect(state: TeamState) -> Command:
 
 def build_team(start: int, end: int, model: str | None = None):
     # Compiled per question, like build_graph: start, end and model are closed over.
+    # The compiled result is itself a runnable graph: that is what makes it a subgraph.
     team = StateGraph(TeamState)
     team.add_node("spawn", node_spawn)
     team.add_node("investigate", lambda t: node_investigate(t, start, end, model))
+    # `goto` is only known at run time, so `destinations` declares where collect
+    # may go; it has no outgoing add_edge of its own.
     team.add_node("collect", node_collect, destinations=("spawn", END))
     team.add_edge(START, "spawn")
+    # The router returns Sends; the list says which node they may target.
     team.add_conditional_edges("spawn", send_agents, ["investigate"])
+    # Superstep 1: spawn. Superstep 2: all the investigate runs, in parallel.
+    # Superstep 3: collect, once, after every branch has written its results.
     team.add_edge("investigate", "collect")
     return team.compile()
 
 
 def node_team(state: State, start: int, end: int, model: str | None = None) -> dict:
-    """The subgraph, run as one node of the coordinator's graph."""
+    """The subgraph, run as one node of the coordinator's graph.
+
+    A compiled graph has the same `invoke` as any runnable, so it can be called
+    inside a node. The parent sees one step: it passes some keys in and merges
+    back only what this function returns.
+    """
     out = build_team(start, end, model).invoke(
         {"question": state["question"], "topology": state["topology"],
          "hypotheses": state["hypotheses"]})
@@ -604,6 +668,11 @@ def node_team(state: State, start: int, end: int, model: str | None = None) -> d
 # --------------------------------------------------------------------------
 
 def build_graph(start: int, end: int, model: str | None = None):
+    """Describe the graph, then compile it. Built per question.
+
+    add_node wants a function of the state alone, so the lambdas close over
+    start, end and model: they are fixed for this question, not part of the state.
+    """
     graph = StateGraph(State)
     graph.add_node("discover", lambda s: node_discover(s, start, end))
     graph.add_node("meta", lambda s: node_meta(s, model))
@@ -613,8 +682,11 @@ def build_graph(start: int, end: int, model: str | None = None):
     graph.add_node("process", lambda s: node_process(s, end))
     graph.add_node("weigh", lambda s: node_weigh(s, model))
     graph.add_node("synthesize", lambda s: node_synthesize(s, model))
+    # The subgraph is wired like any other node.
     graph.add_node("team", lambda s: node_team(s, start, end, model))
 
+    # START and END are the graph's entry and exit markers. add_edge(a, b):
+    # when a finishes, b runs next, always.
     graph.add_edge(START, "discover")
     graph.add_edge("discover", "meta")
     graph.add_edge("meta", "hypotheses")
@@ -622,14 +694,20 @@ def build_graph(start: int, end: int, model: str | None = None):
     graph.add_edge("choose", "execute")
     graph.add_edge("execute", "process")
     graph.add_edge("process", "weigh")
+    # A conditional edge: after "weigh" the router picks the next node by name;
+    # the dict lists every name it may return.
     graph.add_conditional_edges("weigh", route_after_weigh,
                                 {"choose": "choose", "synthesize": "synthesize", "team": "team"})
     graph.add_edge("team", "synthesize")
     graph.add_edge("synthesize", END)
+    # Until compile() this is only a description. compile() checks the wiring
+    # and returns a runnable. It executes in supersteps: all nodes that are
+    # ready run, their updates are merged into the state, then the next step.
     return graph.compile()
 
 
 def run(question: str, start: int, end: int, model: str | None = None,
         direct: bool | None = None) -> State:
     """One question, one run. Every question rediscovers the system: it may have changed."""
+    # invoke() takes the initial state, runs START to END, and returns the final state.
     return build_graph(start, end, model).invoke({"question": question, "direct": direct})

@@ -15,6 +15,15 @@ on purpose, is the subject of step 03:
 * every tool in the same call (slide "Perché non un agente solo?").
 
     make ask STEP=02 Q="which log lines did the store service produce recently?"
+
+Concepts in this file:
+
+* tool calling: the model picks a tool and fills its parameters, it does not
+  write a query (`llm.call_tool`);
+* `enum` built from discovery: the model can only name what exists
+  (`tools.loki_schema`, `tools.mimir_schema`);
+* the query string is composed by code the model never sees (`agents.run_tool`);
+* no loop, no sentinel yet: one choice, one answer.
 """
 
 from __future__ import annotations
