@@ -23,6 +23,54 @@ The slides also show a coordinator and a team of agents: that system is not in
 this repo. This one is the single-agent skeleton they grew from: same loop,
 same guardrails, none of the diagnostic rules (see [What is not here](#what-is-not-here)).
 
+## From the slides to the code
+
+The talk is built on two systems. The one on stage is the full system: a
+coordinator, specialist agents, the diagnostic rules, and the numbers on the
+slides were measured on it. It is private. This repo is the second one,
+written from scratch to show the principle, and you can run it yourself.
+
+Slide titles are in Italian, as in the deck. **Here** means you will find it
+in this repo; **Partly** means the idea is here in a simpler form; **Not
+here** means it exists only in the system on stage.
+
+**Act I and II: from the question to the agent**
+
+| Slide | What it says | In this repo |
+|---|---|---|
+| *Tre segnali, una lingua* · *Raccoglie, standardizza, instrada* | logs, metrics, traces, OpenTelemetry | **Here**, as the observed system: `stack/` ([iot-observability-demo](https://github.com/monte97/iot-observability-demo)) |
+| *Dati veri, domanda sbagliata* | letting the model write the query fails, even with the real names in the prompt | **Here** as the argument ([Why not just ask the model](#why-not-just-ask-the-model-for-the-query)). The 20-question measurement on the slide comes from the full system |
+| *Dallo scrivere allo scegliere* | the model picks, the code writes the query | **Here**, the core: `tools.py`, `loki_schema` / `mimir_schema` (runtime enums) and `loki_compose` / `mimir_compose` |
+| *Un ruolo, i suoi strumenti, il suo vocabolario* | role, tools, and a vocabulary discovered from the backends | **Partly**: `discovery.py` builds the vocabulary from Loki and Mimir, never calling the model. One agent with `loki_query`, `mimir_query` and the sentinel; no Tempo, no dashboard panels, no documentation |
+
+**Act III: the team**
+
+| Slide | What it says | In this repo |
+|---|---|---|
+| *Perché non un agente solo?* | too many options, context rot, one prompt for every role | **Not here**: this repo is that single agent, kept small on purpose |
+| *Quando indago, mi faccio quattro domande* | hypotheses, choose, weigh, synthesize | **Here**: `graph.py`, `node_hypotheses`, `node_choose`, `node_weigh`, `node_synthesize` |
+| *Nodi e archi* · *Lo stato: la memoria condivisa* | LangGraph nodes, conditional edges, shared state | **Here**: `graph.py`, `State` and `build_graph` |
+| *I quattro pezzi, in un grafo* | discover, meta, hypotheses, choose the specialists, execute, process, weigh, synthesize | **Partly**: the same chain without `meta` and without specialists: `choose` picks one of the tools |
+| *Quando fermarsi lo decide il codice* | the router: another cycle or close, at confidence 0.7 or three cycles | **Here**: `route_after_weigh`, `CONFIDENCE_THRESHOLD = 0.7`, `MAX_CYCLES = 3`. Empty evidence buys another cycle; the "single source" rule is not here |
+| *Un giro: un'ipotesi, un agente* · *Una causa confermata. Le altre restano aperte.* | weighing without discarding what was never investigated (`non indagata`) | **Partly**: `node_weigh` has a different guardrail, an empty result discards its hypothesis whatever the model scored. The `non indagata` marker is in the full system only |
+| *Un sistema che non può dire «non lo so» dirà qualcos'altro* | a declared way out | **Here**: `tools.py`, `SENTINEL`; try `make ask Q="how many users abandoned their shopping cart today?"` |
+| *Dove siamo arrivati* | 2/20 → 11/20 | **Not here**: measured on the full system. This repo has its own bench, five questions, L3 4/5 ([Measure it](#measure-it-before-believing-it)) |
+| *La query è giusta. Il posto no.* | the coordinator sends the question to the wrong agent | **Not here**: there is only one agent |
+
+**Act IV: coordinating**
+
+| Slide | What it says | In this repo |
+|---|---|---|
+| From *E se il primo indizio fosse il sintomo?* to *Da zero a trentatré* | first-that-holds vs the team, `Send` and reducers, `Command`, the dependency rule, 0 → 7 → 33/33 | **Not here**: all of Act IV is the full system |
+
+**The incident and the close**
+
+| Slide | What it says | In this repo |
+|---|---|---|
+| *Un servizio fermo, due segnali* | store stopped: no logs from store, normalizer still writing to it | **Here** as a failure you can cause: `make incident` ([Reproduce the demo](#reproduce-the-demo)) |
+| *Chiedo in italiano, risponde in italiano* | the system answers "store is down", confidence 1 | **Not here**: on the same failure this repo answers *inconclusive*. Turning silence into evidence takes the rules in [What is not here](#what-is-not-here) |
+| *L'affidabilità sta in quello che il modello non ha il permesso di fare.* | the code writes the query, the names come from the backends, the router decides when to stop | **Here**: `tools.py`, `discovery.py`, `route_after_weigh` in `graph.py` |
+
 ---
 
 ## Why not just ask the model for the query?
