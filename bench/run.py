@@ -85,6 +85,9 @@ def score(run, question: dict, start: int, end: int) -> dict:
 
     row["l1"] = int(bool(last.get("ok")))
     row["l2"] = int(bool(last.get("hits")))
+    if not row["l1"]:
+        row["note"] = "the backend refused the query"
+        return row
     if not row["l2"]:
         row["note"] = "valid query, no data"
         return row
