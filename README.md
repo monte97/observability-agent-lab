@@ -10,7 +10,7 @@ An empty answer looks like an answer.
 
 Companion code of the talk **"L'incidente non parla PromQL"** (DevFest Milano
 2026): [talk page](https://montelli.dev/talks/incidente-non-parla-promql/) ·
-[slides (PDF)](https://montelli.dev/files/talk-promql-devfest-milano-2026.pdf).
+[slides (PDF, in Italian)](slides/talk-promql-devfest-milano-2026.pdf).
 
 ## Four steps, one per act
 
