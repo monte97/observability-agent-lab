@@ -24,16 +24,17 @@ Companion code of the talk **"L'incidente non parla PromQL"** (DevFest Milano
 Each step runs on its own; `diff` two folders to see what an act adds. Every
 file opens with the LangGraph and Loki/Mimir concepts it uses.
 
-Measured on 2026-10-09 with `mistral/codestral-2508`:
+Measured with `mistral/codestral-2508` (bench on 2026-10-09, failures on
+2026-10-10, three questions times three runs):
 
 | | 01 | 02 | 03 | 04 |
 |---|---|---|---|---|
 | bench, healthy system (L3) | 0/5 | 3/5 | 4/5 | 4/5 |
 | `store` stopped | | | 9/9 | 9/9 |
-| `normalizer` stopped | | | 1/9 | 9/9 |
+| `normalizer` stopped | | | 0/9 | 8/9 |
 
 With normalizer stopped, store goes quiet too: step 03 names the symptom,
-step 04 the cause, at about 13 model calls per investigation.
+step 04 the cause, at 13 model calls per investigation instead of 5.
 
 ## Quick start
 

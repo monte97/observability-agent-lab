@@ -230,13 +230,19 @@ def node_execute(state: State, start: int, end: int, model: str | None = None) -
     try:
         tool, args = agents.ask_specialist(choice["specialist"], target["text"],
                                            state["topology"], model, hint)
+        if target.get("silent") and tool == "loki_query":
+            # The code's own hypothesis asks one thing: is the service still
+            # writing? The code knows that query: all its logs, no level filter.
+            args = {"services": [target["service"]]}
         finding = agents.run_tool(tool, args, start, end)
     except (llm.NoToolCall, ValueError) as exc:
         return {"error": str(exc), "stop": True}
 
     finding["agent"] = choice["specialist"]
     target["investigated"] = True
-    if finding.get("hits") or is_silence(target, finding):
+    if is_silence(target, finding):
+        target["silence_seen"] = True
+    if finding.get("hits") or target.get("silence_seen"):
         target["evidence"] = finding["query"]
     # `findings` has no reducer, so a bare [finding] would replace the history:
     # the node appends by hand. Step 04's `results` does it with a reducer.
@@ -317,7 +323,9 @@ def apply_guardrails(hypotheses: list[dict], scores: dict[int, float], index: in
     * the hypothesis just investigated, if its query came back empty and that
       emptiness is not the evidence, is discarded whatever the model said. Not
       a silent-service hypothesis: a badly aimed query ("no errors") says
-      nothing about a silence, so it gets another cycle instead.
+      nothing about a silence, so it gets another cycle instead;
+    * a silent-service hypothesis stays below the threshold until its silence
+      has been seen: other facts cannot confirm it.
     """
     out = copy.deepcopy(hypotheses)
     for i, h in enumerate(out):
@@ -327,6 +335,8 @@ def apply_guardrails(hypotheses: list[dict], scores: dict[int, float], index: in
         h.pop("not_investigated", None)
         if i in scores:
             h["confidence"] = scores[i]
+        if h.get("silent") and not h.get("silence_seen"):
+            h["confidence"] = min(h.get("confidence", 0), CONFIDENCE_THRESHOLD - 0.01)
     if index is not None and empty and not silence and not out[index].get("silent"):
         out[index]["confidence"] = 0
         out[index]["discarded"] = True
@@ -406,15 +416,18 @@ def node_synthesize(state: State, model: str | None = None) -> dict:
     role = ("Answer the question in 2-3 sentences, using only the observed facts, and cite "
             "the query the data came from. Do not invent numbers."
             if state.get("direct") else
-            "State the cause in one sentence, starting with the service named in the "
-            "conclusion, then cite the query it rests on. Do not invent numbers.")
+            "In one or two sentences, give the evidence for the conclusion and cite the "
+            "query it rests on. Do not restate the cause. Do not invent numbers.")
     response = llm.call([
         {"role": "system", "content": "You are an SRE triage analyst. " + role},
         {"role": "user", "content":
             f"Question: {state['question']}\nConclusion: {top['text']}\n"
             f"Observed: {state.get('facts', '')}\nSource: {top.get('evidence')}"},
     ], model=model)
-    return {"answer": llm.text(response), "stop": True}
+    # The cause is the code's conclusion, written as is: the model only explains
+    # it, so it cannot rename the service on the way out.
+    answer = llm.text(response) if state.get("direct") else f"{top['text']}.\n{llm.text(response)}"
+    return {"answer": answer, "stop": True}
 
 
 # --------------------------------------------------------------------------

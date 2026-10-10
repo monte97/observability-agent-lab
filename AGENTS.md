@@ -36,7 +36,10 @@ The observed system is the `stack/` submodule (iot-observability-demo):
 4. **The guardrails are code.** In `apply_guardrails`: an empty result discards
    its hypothesis, a hypothesis nobody investigated keeps its score. The router
    (`route_after_weigh`) and the team's trigger are plain `if`s on the state.
-   Silence counts as evidence only where `is_silence` says so.
+   Silence counts as evidence only where `is_silence` says so. A hypothesis the
+   code wrote about a silent service is checked with a query the code writes
+   (all its logs, no level filter), and stays below the threshold until that
+   silence has been seen. In a symptom answer the cause is the code's text.
 5. **`04-the-team/graph.py` is a copy of `03-the-graph/graph.py` plus Act IV.**
    A change to a function they share goes into both files, identical, comments
    included. `diff 03-the-graph/graph.py 04-the-team/graph.py` must show only

@@ -63,6 +63,10 @@ assert not out[0].get("discarded") and out[0]["confidence"] == 0.9
 # A silent-service hypothesis is not discarded by a badly aimed empty query.
 silent = [{"text": "store is down", "silent": True, "confidence": 0.5, "investigated": True}]
 assert not coordinator.apply_guardrails(silent, {0: 0.2}, 0, empty=True, silence=False)[0].get("discarded")
+# ...and it cannot be confirmed by anything but its own silence.
+assert coordinator.apply_guardrails(silent, {0: 0.9}, 0, empty=False, silence=False)[0]["confidence"] < 0.7
+seen = [{**silent[0], "silence_seen": True}]
+assert coordinator.apply_guardrails(seen, {0: 0.9}, 0, empty=True, silence=True)[0]["confidence"] == 0.9
 print("guardrails: ok")
 
 # The team's tie: equal evidence, the rule picks the one upstream.
