@@ -62,20 +62,40 @@ make stack-state                      # services: [device-gateway, normalizer, s
 make ask STEP=02 Q="which log lines did the store service produce recently?"
 ```
 
-## Cause a failure
+## Run the demo end to end
 
-The interesting runs need a failure. The window of observation is short
-(`MINUTES=2`), so a stopped service falls silent within it after 150 seconds:
+The talk's point in two failures. The observation window is short
+(`MINUTES=2`), so a stopped service falls silent within it after 150 seconds.
+
+**1. The consumer stops.** The first hypothesis that holds is the cause:
 
 ```bash
 make incident && sleep 150            # stop store
 make scenario STEP=03 MINUTES=2 Q="Data no longer reaches MongoDB. What is going on?"
 make healthy
+```
 
-make incident-upstream && sleep 150   # stop normalizer: store goes quiet too
-make compare SERVICE=normalizer       # steps 03 and 04, three questions, three runs
+Expect `store is down: it wrote log lines until 2 minutes ago and nothing
+since`, confirmed by `{service_name=~"store"}` returning nothing, in about 5
+model calls.
+
+**2. The producer stops, and the consumer goes quiet too.** Now the first
+hypothesis that holds is the symptom:
+
+```bash
+make incident-upstream && sleep 150   # stop normalizer
+make scenario STEP=03 MINUTES=2 Q="Data no longer reaches MongoDB. What is going on?"
+make scenario STEP=04 MINUTES=2 Q="Data no longer reaches MongoDB. What is going on?"
 make healthy
 ```
+
+Expect step 03 to answer `store is down` (the symptom) and step 04 to answer
+`normalizer is down` (the cause), with `route: team (trigger: chain normalizer
+-> store ...)` and about 13 model calls. `make compare SERVICE=normalizer`
+runs both steps on three questions, three times each, and counts.
+
+The model is not deterministic: measured on 2026-10-10, step 04 named the
+cause 8 times out of 9, step 03 never.
 
 `make down` stops the stack when you are done.
 

@@ -14,10 +14,13 @@ What changed from step 02:
 * `hypotheses`: the code puts first one hypothesis per silent service
   ("store is down"), the model adds its own (slide "Un giro: un'ipotesi, un agente");
 * `choose`: the code picks the hypothesis, the model picks the specialist,
-  the specialist picks the tool (`common/agents.py`);
-* `weigh`: the model scores, the code overrules it twice: an empty result
-  discards its hypothesis, and a hypothesis never investigated keeps its score
+  the specialist picks the tool (`common/agents.py`). For the code's own
+  "X is down" hypotheses the code writes the check: all of X's logs;
+* `weigh`: the model scores, the code overrules it three times: an empty result
+  discards its hypothesis, a hypothesis never investigated keeps its score,
+  and "X is down" stays below the threshold until X's silence has been seen
   (slide "Una causa confermata. Le altre restano aperte.");
+* `synthesize`: the cause is the conclusion's text, the model adds the evidence;
 * `route_after_weigh`: plain `if`s decide another cycle or the answer
   (slide "Quando fermarsi lo decide il codice");
 * the sentinel: "no tool of mine covers this" is a valid answer
@@ -210,7 +213,8 @@ def node_choose(state: State, model: str | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------
-# execute + process: the specialist picks the tool, the code runs it
+# execute + process: the specialist picks the tool (for a silence the code
+# writes the check), the code runs it
 # --------------------------------------------------------------------------
 
 def node_execute(state: State, start: int, end: int, model: str | None = None) -> dict:

@@ -7,7 +7,8 @@ by `run_tool`, which never involves the model.
 
 Step 02 hands every tool to a single agent. From step 03 on, a coordinator
 first picks the specialist, then the specialist picks the tool: fewer options
-per call, one prompt per role.
+per call, one prompt per role. One exception: when the hypothesis is the code's
+own "X is down", the code writes the check itself (see `node_execute`).
 """
 
 from __future__ import annotations

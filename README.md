@@ -52,6 +52,9 @@ make check                # backends 200, venv ok, model key ok
 make ask STEP=02 Q="which log lines did the store service produce recently?"
 ```
 
+To see the talk's point live, two failures and steps 03 and 04 side by side:
+[Run the demo end to end](SETUP.md#run-the-demo-end-to-end).
+
 Working on the code, by hand or with a coding agent: [AGENTS.md](AGENTS.md)
 has the layout, the rules that must hold, and how to verify a change.
 

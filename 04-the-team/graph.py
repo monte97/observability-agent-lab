@@ -246,7 +246,8 @@ def node_choose(state: State, model: str | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------
-# execute + process: the specialist picks the tool, the code runs it
+# execute + process: the specialist picks the tool (for a silence the code
+# writes the check), the code runs it
 # --------------------------------------------------------------------------
 
 def node_execute(state: State, start: int, end: int, model: str | None = None) -> dict:
