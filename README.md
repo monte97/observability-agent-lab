@@ -37,31 +37,22 @@ step 04 the cause, at about 13 model calls per investigation.
 
 ## Quick start
 
+You need Docker with Compose v2, Python 3.10-3.14 and a model (hosted with a
+key, or local). Everything else, including the model routes and what to do
+when something fails, is in [SETUP.md](SETUP.md).
+
 ```bash
 git clone --recurse-submodules https://github.com/monte97/observability-agent-lab
 cd observability-agent-lab
-make setup && make up && make check     # then put your model key in .env
+make setup                # venv, dependencies, .env from .env.example
+$EDITOR .env              # AGENT_MODEL and its key
+make up                   # then give the services two minutes to log
+make check                # backends 200, venv ok, model key ok
 make ask STEP=02 Q="which log lines did the store service produce recently?"
-make incident-upstream && sleep 150     # stop normalizer
-make compare SERVICE=normalizer         # steps 03 and 04 side by side
-make healthy
 ```
 
-`make help` lists the rest. The observed system is
-[iot-observability-demo](https://github.com/monte97/iot-observability-demo), in
-`stack/`. On macOS `make up` skips `node-exporter`, which Docker Desktop refuses.
-
-## Pick your model
-
-Any model [LiteLLM](https://docs.litellm.ai/docs/providers) reaches, as long as
-it supports required tool calls. In `.env`:
-
-- a hosted provider: `AGENT_MODEL=provider/model` plus its key
-  (`mistral/codestral-2508` + `MISTRAL_API_KEY`);
-- a gateway or local server: the bare model name plus `LLM_BASE_URL`.
-
-Verified from a clean clone: `mistral/codestral-2508` and `qwen3.5-4b-mlx` in
-LM Studio with no key, both 4/5 on step 03.
+Working on the code, by hand or with a coding agent: [AGENTS.md](AGENTS.md)
+has the layout, the rules that must hold, and how to verify a change.
 
 ## What is not here
 
