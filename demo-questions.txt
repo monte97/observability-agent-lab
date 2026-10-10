@@ -1,24 +1,9 @@
-# Questions to try, roughly in order of how much they show.
-# Run one with:  make ask Q="<the question>"
+# Questions that name what to look at. `make examples` runs them one after
+# another on a step (STEP=03 by default); one at a time:
+#   make ask STEP=02 Q="<the question>"
 
-# --- it answers, in one step (4-6 seconds each) ---
+# --- it answers, in one step ---
 show me what store is writing
 is device-gateway logging anything?
 how many log lines has normalizer produced?
 which log lines did the store service produce recently?
-
-# --- it declines, because nothing here can answer ---
-# The sentinel is offered as a tool: saying "no" is a valid outcome.
-how many users abandoned their shopping cart today?
-which services are sending logs right now?
-
-# --- it looks, finds nothing, and refuses to conclude ---
-# On a healthy system there are no errors to find. The empty-evidence guardrail
-# discards the hypothesis and the agent says so instead of guessing.
-are there any errors anywhere?
-
-# --- with the model proposing causes (make scenario Q="...") ---
-the pipeline seems stuck, what is going on?
-
-# --- after `make incident`, once the window has passed ---
-does the store service have any recent log lines?
